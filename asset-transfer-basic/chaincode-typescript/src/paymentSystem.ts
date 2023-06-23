@@ -140,4 +140,16 @@ export class PaymentSystemContract extends Contract {
 
         await ctx.stub.putState(contractID, Buffer.from(JSON.stringify(contract)));
     }
+
+    // Cancel the contract by both parties approbation
+    @Transaction()
+    public async CancelContract(ctx: Context, contractID: string, approverClient: string, approverFreelancer: string) : Promise<void> {
+    	const contractJSON = await ctx.stub.getState(contractID);
+        const contract = JSON.parse(contractJSON.toString()) as EscrowContract;
+        // Close the contract if both parties approve and the contract is opened
+        if (approverClient === contract.Client && approverFreelancer === contract.Freelancer && contract.Status == 'OPEN') {
+        	contract.Status = 'CLOSED';
+        	await ctx.stub.putState(contractID, Buffer.from(JSON.stringify(contract)));
+        }
+    }
 }
