@@ -148,8 +148,13 @@ export class PaymentSystemContract extends Contract {
         const contract = JSON.parse(contractJSON.toString()) as EscrowContract;
         // Close the contract if both parties approve and the contract is opened
         if (approverClient === contract.Client && approverFreelancer === contract.Freelancer && contract.Status == 'OPEN') {
+            const clientAccountJSON = await ctx.stub.getState(contract.Client);
+            const clientAccount = JSON.parse(clientAccountJSON.toString()) as Account;
+            clientAccount.Balance += contract.Amount;
+            contract.Amount -= contract.Amount;
         	contract.Status = 'CLOSED';
-        	await ctx.stub.putState(contractID, Buffer.from(JSON.stringify(contract)));
+        	await ctx.stub.putState(contract.Client, Buffer.from(JSON.stringify(clientAccount)));
+            await ctx.stub.putState(contractID, Buffer.from(JSON.stringify(contract)));
         }
     }
 }
