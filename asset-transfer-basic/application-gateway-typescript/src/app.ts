@@ -5,11 +5,13 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
-import { connect, Contract, Identity, Signer, signers } from '@hyperledger/fabric-gateway';
+import { connect, Contract, Gateway, Identity, Signer, signers } from '@hyperledger/fabric-gateway';
 import * as crypto from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { TextDecoder } from 'util';
+import express from 'express';
+import bodyParser from 'body-parser';
 
 const channelName = envOrDefault('CHANNEL_NAME', 'mychannel');
 const chaincodeName = envOrDefault('CHAINCODE_NAME', 'basic');
@@ -172,14 +174,13 @@ async function approveWork(contract: Contract): Promise<void> {
 /**
  * Evaluate a transaction to query ledger state.
  */
-async function getAllTransactions(contract: Contract): Promise<void> {
+async function getAllTransactions(contract: Contract): Promise<JSON> {
     console.log('\n--> Evaluate Transaction: GetAllTransactions, function returns all the current transactions on the ledger');
 
     const resultBytes = await contract.evaluateTransaction('GetAllTransactions');
 
     const resultJson = utf8Decoder.decode(resultBytes);
-    const result = JSON.parse(resultJson);
-    console.log('*** Result:', result);
+    return JSON.parse(resultJson);
 }
 
 /**
@@ -275,3 +276,69 @@ async function displayInputParameters(): Promise<void> {
     console.log(`peerEndpoint:      ${peerEndpoint}`);
     console.log(`peerHostAlias:     ${peerHostAlias}`);
 }
+
+// Função stablishConnection
+async function stablishConnection(): Promise<{ gateway: Gateway, contract: Contract, client: grpc.Client }> {
+    // The gRPC client connection should be shared by all Gateway connections to this endpoint.
+    const client = await newGrpcConnection();
+
+    const gateway = connect({
+        client,
+        identity: await newIdentity(),
+        signer: await newSigner(),
+        // Default timeouts for different gRPC calls
+        evaluateOptions: () => {
+            return { deadline: Date.now() + 5000 }; // 5 seconds
+        },
+        endorseOptions: () => {
+            return { deadline: Date.now() + 15000 }; // 15 seconds
+        },
+        submitOptions: () => {
+            return { deadline: Date.now() + 5000 }; // 5 seconds
+        },
+        commitStatusOptions: () => {
+            return { deadline: Date.now() + 60000 }; // 1 minute
+        },
+    });
+
+    // Get a network instance representing the channel where the smart contract is deployed.
+    const network = gateway.getNetwork(channelName);
+
+    // Get the smart contract from the network.
+    const contract = network.getContract(chaincodeName);
+
+    return { gateway, contract, client };
+}
+
+// Cria uma nova instância do Express
+const app = express();
+
+// Utiliza o middleware 'body-parser' para tratar requisições JSON
+app.use(bodyParser.json());
+
+// Rota HTTP GET para '/transactions'
+app.get('/transactions', async (req, res) => {
+    try {
+        const { gateway, contract, client } = await stablishConnection();
+
+        // Chama a função getAllTransactions
+        const result = await getAllTransactions(contract);
+
+        // Fecha o gateway
+        gateway.close();
+        client.close();
+
+        // Retorna o resultado para o cliente
+        res.json(result);
+    } catch (error) {
+        // Retorna um erro HTTP 500 caso algo dê errado
+        console.error('Failed to process transaction:', error);
+        res.status(500).json({error});
+    }
+});
+
+
+// Inicia o servidor na porta 3000
+app.listen(3000, () => {
+    console.log('Servidor rodando na porta 3000');
+});
