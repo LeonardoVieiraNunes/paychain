@@ -159,4 +159,29 @@ export class PaymentSystemContract extends Contract {
             throw new Error('The contract is already closed or canceled by both parties');
         }
     }
+
+    @Transaction(false)
+    public async GetActiveContracts(ctx: Context, id: string): Promise<string> {
+        const activeContracts = [];
+        const iterator = await ctx.stub.getStateByRange('', '');
+
+        let result = await iterator.next();
+        while (!result.done) {
+            const strValue = Buffer.from(result.value.value.toString()).toString('utf8');
+            let record;
+            try {
+                record = JSON.parse(strValue);
+            } catch (err) {
+                console.log(err);
+                record = strValue;
+            }
+
+            // If record is a contract, client or freelancer is the provided ID, and status is 'OPEN', add to active contracts array
+            if (record.docType === 'contract' && (record.Client === id || record.Freelancer === id) && record.Status === 'OPEN') {
+                activeContracts.push(record);
+            }
+            result = await iterator.next();
+        }
+        return JSON.stringify(activeContracts);
+    }
 }

@@ -141,6 +141,25 @@ async function getAccountBalance(req: express.Request, res: express.Response): P
     }
 }
 
+async function getActiveContracts(req: express.Request, res: express.Response): Promise<void> {
+    const { id } = req.params;
+    
+    if (!id) {
+        res.status(400).json({ error: 'Missing required field(s)' });
+    }
+
+    try {
+        const balanceBytes = await contract.evaluateTransaction('GetActiveContracts', id);
+        const resultJson = utf8Decoder.decode(balanceBytes);
+        const balance = JSON.parse(resultJson);
+        res.json({ balance });
+    } catch (error) {
+        console.log(error)
+        const message = (error as EndorseError).details[0].message;
+        res.status(500).json({ error: 'Failed to submit transaction', cause: message });
+    }
+}
+
 
 /**
  * Evaluate a transaction to query ledger state.
@@ -218,6 +237,7 @@ init()
         app.post('/approve-work', approveWork);
         app.post('/cancel-contract', cancelContract);
         app.get('/account/:id/balance', getAccountBalance);
+        app.get('/account/:id/active-contracts', getActiveContracts);
         app.listen(3000, () => console.log('Server started on port 3000'));
     })
     .catch((error) => {
