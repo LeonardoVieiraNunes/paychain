@@ -22,6 +22,8 @@ npm install
 npm start
 ```
 
+This application will init ledger with two accounts, `client1` and `freelancer1`. The client1 will init with 5000 units in your wallet, and the `freelancer1` with 0 units in order to test the transactions.
+
 The endpoints will be exposed in the port 3000, you can access by http requests, for example:
 
 List all transactions
