@@ -77,7 +77,7 @@ async function createEscrowContract(req: express.Request, res: express.Response)
         res.status(400).json({ error: 'Missing required field(s)' });
     }
 
-    const contractId = 'banana'
+    const contractId = crypto.randomUUID();
 
     try {
         await contract.submitTransaction('CreateEscrowContract', contractId, client, freelancer, value);
