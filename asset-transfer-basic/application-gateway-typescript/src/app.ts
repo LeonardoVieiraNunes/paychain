@@ -5,13 +5,12 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
-import { connect, Contract, Gateway, Identity, Signer, signers } from '@hyperledger/fabric-gateway';
+import { connect, Contract, Identity, Signer, signers } from '@hyperledger/fabric-gateway';
 import * as crypto from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { TextDecoder } from 'util';
 import express from 'express';
-import bodyParser from 'body-parser';
+import { TextDecoder } from 'util';
 
 const channelName = envOrDefault('CHANNEL_NAME', 'mychannel');
 const chaincodeName = envOrDefault('CHAINCODE_NAME', 'basic');
@@ -36,70 +35,7 @@ const peerEndpoint = envOrDefault('PEER_ENDPOINT', 'localhost:7051');
 const peerHostAlias = envOrDefault('PEER_HOST_ALIAS', 'peer0.org1.example.com');
 
 const utf8Decoder = new TextDecoder();
-const assetId = `asset${Date.now()}`;
-
-async function main(): Promise<void> {
-
-    await displayInputParameters();
-
-    // The gRPC client connection should be shared by all Gateway connections to this endpoint.
-    const client = await newGrpcConnection();
-
-    const gateway = connect({
-        client,
-        identity: await newIdentity(),
-        signer: await newSigner(),
-        // Default timeouts for different gRPC calls
-        evaluateOptions: () => {
-            return { deadline: Date.now() + 5000 }; // 5 seconds
-        },
-        endorseOptions: () => {
-            return { deadline: Date.now() + 15000 }; // 15 seconds
-        },
-        submitOptions: () => {
-            return { deadline: Date.now() + 5000 }; // 5 seconds
-        },
-        commitStatusOptions: () => {
-            return { deadline: Date.now() + 60000 }; // 1 minute
-        },
-    });
-
-    try {
-        // Get a network instance representing the channel where the smart contract is deployed.
-        const network = gateway.getNetwork(channelName);
-
-        // Get the smart contract from the network.
-        const contract = network.getContract(chaincodeName);
-
-        // Initialize a set of asset data on the ledger using the chaincode 'InitLedger' function.
-        await initLedger(contract);
-
-        // Read all assets that exist in the ledger.
-        await createEscrowContract(contract);
-
-        await getAllTransactions(contract);
-
-        // Create a new asset on the ledger.
-        // await createAsset(contract);
-
-        // Update an existing asset asynchronously.
-        // await transferAssetAsync(contract);
-
-        // Get the asset details by assetID.
-        // await readAssetByID(contract);
-
-        // Update an asset which does not exist.
-        // await updateNonExistentAsset(contract)
-    } finally {
-        gateway.close();
-        client.close();
-    }
-}
-
-main().catch(error => {
-    console.error('******** FAILED to run the application:', error);
-    process.exitCode = 1;
-});
+let contract: Contract;
 
 async function newGrpcConnection(): Promise<grpc.Client> {
     const tlsRootCert = await fs.readFile(tlsCertPath);
@@ -130,129 +66,89 @@ async function initLedger(contract: Contract): Promise<void> {
     console.log('\n--> Submit Transaction: InitLedger, function creates the initial set of assets on the ledger');
 
     await contract.submitTransaction('InitLedger');
-
+    
     console.log('*** Transaction committed successfully');
 }
 
-async function createEscrowContract(contract: Contract): Promise<void> {
-    console.log('\n--> Submit Transaction: CreateEscrowContract, creates new escrow contract');
+async function createEscrowContract(req: express.Request, res: express.Response): Promise<void> {
+    const { client, freelancer, value } = req.body;
+    
+    if (!client || !freelancer || !value) {
+        res.status(400).json({ error: 'Missing required field(s)' });
+    }
 
-    await contract.submitTransaction(
-        'CreateEscrowContract',
-        'contract1',
-        'client1',
-        'freelancer1',
-        '1000',
-    );
+    const contractId = 'banana'
 
-    console.log('*** Transaction committed successfully');
+    try {
+        await contract.submitTransaction('CreateEscrowContract', contractId, client, freelancer, value);
+        res.json({ message: 'Transaction committed successfully' });
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ error: 'Failed to submit transaction' });
+    }
 }
 
-// Approve work for an escrow contract.
-async function approveWork(contract: Contract): Promise<void> {
-    console.log('\n--> Submit Transaction: ApproveWork, approves work for an escrow contract');
+async function approveWork(req: express.Request, res: express.Response): Promise<void> {
+    const { contractId, approver } = req.body;
+    
+    if (!contractId || !approver) {
+        res.status(400).json({ error: 'Missing required field(s)' });
+    }
 
-    // Primeiro, o cliente aprova o trabalho.
-    await contract.submitTransaction(
-        'ApproveWork',
-        'contract1',
-        'client1',
-    );
-
-    console.log('*** Transaction committed successfully');
-
-    // Em seguida, o freelancer aprova o trabalho.
-    await contract.submitTransaction(
-        'ApproveWork',
-        'contract1',
-        'freelancer1',
-    );
-
-    console.log('*** Transaction committed successfully');
+    try {
+        await contract.submitTransaction('ApproveWork', contractId, approver);
+        res.json({ message: 'Transaction committed successfully' });
+    } catch (e) {
+        console.log(e)
+        res.status(500).json({ error: 'Failed to submit transaction', e });
+    }
 }
+
+
+async function cancelContract(req: express.Request, res: express.Response): Promise<void> {
+    const { contractId, approver } = req.body;
+
+    if (!contractId || !approver) {
+        res.status(400).json({ error: 'Missing required field(s)' });
+        return;
+    }
+
+    try {
+        await contract.submitTransaction('CancelContract', contractId, approver);
+        res.json({ message: 'Transaction committed successfully' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Failed to submit transaction' });
+    }
+}
+
+async function getAccountBalance(req: express.Request, res: express.Response): Promise<void> {
+    const { id } = req.params;
+    
+    if (!id) {
+        res.status(400).json({ error: 'Missing required field(s)' });
+    }
+
+    try {
+        const balanceBytes = await contract.evaluateTransaction('GetAccountBalance', id);
+        const resultJson = utf8Decoder.decode(balanceBytes);
+        const balance = JSON.parse(resultJson);
+        res.json({ balance });
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ error: 'Failed to submit transaction' });
+    }
+}
+
 
 /**
  * Evaluate a transaction to query ledger state.
  */
-async function getAllTransactions(contract: Contract): Promise<JSON> {
-    console.log('\n--> Evaluate Transaction: GetAllTransactions, function returns all the current transactions on the ledger');
-
+async function getAllTransactions(req: express.Request, res: express.Response): Promise<void> {
     const resultBytes = await contract.evaluateTransaction('GetAllTransactions');
-
-    const resultJson = utf8Decoder.decode(resultBytes);
-    return JSON.parse(resultJson);
-}
-
-/**
- * Submit a transaction synchronously, blocking until it has been committed to the ledger.
- */
-async function createAsset(contract: Contract): Promise<void> {
-    console.log('\n--> Submit Transaction: CreateAsset, creates new asset with ID, Color, Size, Owner and AppraisedValue arguments');
-
-    await contract.submitTransaction(
-        'CreateAsset',
-        assetId,
-        'yellow',
-        '5',
-        'Tom',
-        '1300',
-    );
-
-    console.log('*** Transaction committed successfully');
-}
-
-/**
- * Submit transaction asynchronously, allowing the application to process the smart contract response (e.g. update a UI)
- * while waiting for the commit notification.
- */
-async function transferAssetAsync(contract: Contract): Promise<void> {
-    console.log('\n--> Async Submit Transaction: TransferAsset, updates existing asset owner');
-
-    const commit = await contract.submitAsync('TransferAsset', {
-        arguments: [assetId, 'Saptha'],
-    });
-    const oldOwner = utf8Decoder.decode(commit.getResult());
-
-    console.log(`*** Successfully submitted transaction to transfer ownership from ${oldOwner} to Saptha`);
-    console.log('*** Waiting for transaction commit');
-
-    const status = await commit.getStatus();
-    if (!status.successful) {
-        throw new Error(`Transaction ${status.transactionId} failed to commit with status code ${status.code}`);
-    }
-
-    console.log('*** Transaction committed successfully');
-}
-
-async function readAssetByID(contract: Contract): Promise<void> {
-    console.log('\n--> Evaluate Transaction: ReadAsset, function returns asset attributes');
-
-    const resultBytes = await contract.evaluateTransaction('ReadAsset', assetId);
-
     const resultJson = utf8Decoder.decode(resultBytes);
     const result = JSON.parse(resultJson);
-    console.log('*** Result:', result);
-}
-
-/**
- * submitTransaction() will throw an error containing details of any error responses from the smart contract.
- */
-async function updateNonExistentAsset(contract: Contract): Promise<void> {
-    console.log('\n--> Submit Transaction: UpdateAsset asset70, asset70 does not exist and should return an error');
-
-    try {
-        await contract.submitTransaction(
-            'UpdateAsset',
-            'asset70',
-            'blue',
-            '5',
-            'Tomoko',
-            '300',
-        );
-        console.log('******** FAILED to return an error');
-    } catch (error) {
-        console.log('*** Successfully caught the error: \n', error);
-    }
+    res.json(result);
 }
 
 /**
@@ -277,8 +173,9 @@ async function displayInputParameters(): Promise<void> {
     console.log(`peerHostAlias:     ${peerHostAlias}`);
 }
 
-// Função stablishConnection
-async function stablishConnection(): Promise<{ gateway: Gateway, contract: Contract, client: grpc.Client }> {
+// Função init
+async function init() {
+    await displayInputParameters()
     // The gRPC client connection should be shared by all Gateway connections to this endpoint.
     const client = await newGrpcConnection();
 
@@ -305,40 +202,24 @@ async function stablishConnection(): Promise<{ gateway: Gateway, contract: Contr
     const network = gateway.getNetwork(channelName);
 
     // Get the smart contract from the network.
-    const contract = network.getContract(chaincodeName);
+    contract = network.getContract(chaincodeName);
 
-    return { gateway, contract, client };
+    // Initialize a set of asset data on the ledger using the chaincode 'InitLedger' function.
+    await initLedger(contract);
 }
 
-// Cria uma nova instância do Express
-const app = express();
-
-// Utiliza o middleware 'body-parser' para tratar requisições JSON
-app.use(bodyParser.json());
-
-// Rota HTTP GET para '/transactions'
-app.get('/transactions', async (req, res) => {
-    try {
-        const { gateway, contract, client } = await stablishConnection();
-
-        // Chama a função getAllTransactions
-        const result = await getAllTransactions(contract);
-
-        // Fecha o gateway
-        gateway.close();
-        client.close();
-
-        // Retorna o resultado para o cliente
-        res.json(result);
-    } catch (error) {
-        // Retorna um erro HTTP 500 caso algo dê errado
-        console.error('Failed to process transaction:', error);
-        res.status(500).json({error});
-    }
-});
-
-
-// Inicia o servidor na porta 3000
-app.listen(3000, () => {
-    console.log('Servidor rodando na porta 3000');
-});
+init()
+    .then(() => {
+        const app = express();
+        app.use(express.json());
+        app.get('/transactions', getAllTransactions);
+        app.post('/create-escrow-contract', createEscrowContract);
+        app.post('/approve-work', approveWork);
+        app.post('/cancel-contract', cancelContract);
+        app.get('/account/:id/balance', getAccountBalance);
+        app.listen(3000, () => console.log('Server started on port 3000'));
+    })
+    .catch((error) => {
+        console.error('Failed to initialize the server:', error);
+        process.exit(1);
+    });
