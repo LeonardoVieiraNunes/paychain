@@ -61,7 +61,22 @@ export class PaymentSystemContract extends Contract {
     // Create a new escrow contract.
     @Transaction()
     public async CreateEscrowContract(ctx: Context, id: string, client: string, freelancer: string, amount: number): Promise<void> {
+        const escrowContractJSON = await ctx.stub.getState(id);
         const clientAccountJSON = await ctx.stub.getState(client);
+        const freelancerAccountJSON = await ctx.stub.getState(freelancer);
+        
+        if (escrowContractJSON.length > 0) {
+            throw new Error(`The escrow contract ${id} already exists`);
+        }
+
+        if (clientAccountJSON.length === 0) {
+            throw new Error(`The client ${client} does not exist`);
+        }
+
+        if (freelancerAccountJSON.length === 0) {
+            throw new Error(`The freelancer ${freelancer} does not exist`);
+        }
+
         const clientAccount = JSON.parse(clientAccountJSON.toString()) as Account;
         if (clientAccount.Balance < amount) {
             throw new Error('Insufficient funds');
@@ -76,8 +91,10 @@ export class PaymentSystemContract extends Contract {
             Freelancer: freelancer,
             Amount: amount,
             Status: 'OPEN',
-            ClientApproval: false,
-            FreelancerApproval: false,
+            ApprovedByClient: false,
+            ApprovedByFreelancer: false,
+            CanceledByClient: false,
+            CanceledByFreelancer: false,
         };
         await ctx.stub.putState(id, Buffer.from(JSON.stringify(contract)));
     }
@@ -90,15 +107,15 @@ export class PaymentSystemContract extends Contract {
 
         if (contract.Status === 'OPEN') {
             if (approver === contract.Client) {
-                contract.ClientApproval = true;
+                contract.ApprovedByClient = true;
             } else if (approver === contract.Freelancer) {
-                contract.FreelancerApproval = true;
+                contract.ApprovedByFreelancer = true;
             } else {
                 throw new Error(`The approver ${approver} is not part of the contract`);
             }
     
             // Automatically close the contract if both parties have approved
-            if (contract.ClientApproval && contract.FreelancerApproval) {
+            if (contract.ApprovedByClient && contract.ApprovedByFreelancer) {
                 const freelancerAccountJSON = await ctx.stub.getState(contract.Freelancer);
                 const freelancerAccount = JSON.parse(freelancerAccountJSON.toString()) as Account;
                 freelancerAccount.Balance += contract.Amount;
@@ -109,26 +126,37 @@ export class PaymentSystemContract extends Contract {
     
             await ctx.stub.putState(contractID, Buffer.from(JSON.stringify(contract)));
         } else {
-            throw new Error('The contract is already closed');
+            throw new Error('The contract is already closed or canceled by both parties');
         }
     }
 
-    // Cancel the contract by mutual agreement and refund the client.
     @Transaction()
-    public async CancelContract(ctx: Context, contractID: string, approverClient: string, approverFreelancer: string) : Promise<void> {
-    	const contractJSON = await ctx.stub.getState(contractID);
+    public async CancelContract(ctx: Context, contractID: string, canceler: string): Promise<void> {
+        const contractJSON = await ctx.stub.getState(contractID);
         const contract = JSON.parse(contractJSON.toString()) as EscrowContract;
-        // Close the contract if both parties approve and the contract is opened
-        if (approverClient === contract.Client && approverFreelancer === contract.Freelancer && contract.Status == 'OPEN') {
-            const clientAccountJSON = await ctx.stub.getState(contract.Client);
-            const clientAccount = JSON.parse(clientAccountJSON.toString()) as Account;
-            clientAccount.Balance += contract.Amount;
-            contract.Amount -= contract.Amount;
-        	contract.Status = 'CLOSED';
-        	await ctx.stub.putState(contract.Client, Buffer.from(JSON.stringify(clientAccount)));
+
+        if (contract.Status === 'OPEN') {
+            if (canceler === contract.Client) {
+                contract.CanceledByClient = true;
+            } else if (canceler === contract.Freelancer) {
+                contract.CanceledByFreelancer = true;
+            } else {
+                throw new Error(`The canceler ${canceler} is not part of the contract`);
+            }
+
+            // Automatically cancel the contract if both parties have canceled
+            if (contract.CanceledByClient && contract.CanceledByFreelancer) {
+                const clientAccountJSON = await ctx.stub.getState(contract.Client);
+                const clientAccount = JSON.parse(clientAccountJSON.toString()) as Account;
+                clientAccount.Balance += contract.Amount;
+                await ctx.stub.putState(contract.Client, Buffer.from(JSON.stringify(clientAccount)));
+
+                contract.Status = 'CANCELED';
+            }
+
             await ctx.stub.putState(contractID, Buffer.from(JSON.stringify(contract)));
         } else {
-            throw new Error('Cannot cancel the contract. Either the contract is already closed, or the approvers are not part of the contract.');
+            throw new Error('The contract is already closed or canceled by both parties');
         }
     }
 }

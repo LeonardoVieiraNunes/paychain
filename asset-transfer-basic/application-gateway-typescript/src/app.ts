@@ -5,7 +5,7 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
-import { connect, Contract, Identity, Signer, signers } from '@hyperledger/fabric-gateway';
+import { connect, Contract, EndorseError, Identity, Signer, signers } from '@hyperledger/fabric-gateway';
 import * as crypto from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -83,8 +83,8 @@ async function createEscrowContract(req: express.Request, res: express.Response)
         await contract.submitTransaction('CreateEscrowContract', contractId, client, freelancer, value);
         res.json({ message: 'Transaction committed successfully' });
     } catch (error) {
-        console.log(error)
-        res.status(500).json({ error: 'Failed to submit transaction' });
+        const message = (error as EndorseError).details[0].message;
+        res.status(500).json({ error: 'Failed to submit transaction', cause: message });
     }
 }
 
@@ -98,27 +98,27 @@ async function approveWork(req: express.Request, res: express.Response): Promise
     try {
         await contract.submitTransaction('ApproveWork', contractId, approver);
         res.json({ message: 'Transaction committed successfully' });
-    } catch (e) {
-        console.log(e)
-        res.status(500).json({ error: 'Failed to submit transaction', e });
+    } catch (error) {
+        const message = (error as EndorseError).details[0].message;
+        res.status(500).json({ error: 'Failed to submit transaction', cause: message });
     }
 }
 
 
 async function cancelContract(req: express.Request, res: express.Response): Promise<void> {
-    const { contractId, approver } = req.body;
+    const { contractId, canceller } = req.body;
 
-    if (!contractId || !approver) {
+    if (!contractId || !canceller) {
         res.status(400).json({ error: 'Missing required field(s)' });
         return;
     }
 
     try {
-        await contract.submitTransaction('CancelContract', contractId, approver);
+        await contract.submitTransaction('CancelContract', contractId, canceller);
         res.json({ message: 'Transaction committed successfully' });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Failed to submit transaction' });
+        const message = (error as EndorseError).details[0].message;
+        res.status(500).json({ error: 'Failed to submit transaction', cause: message });
     }
 }
 
@@ -136,7 +136,8 @@ async function getAccountBalance(req: express.Request, res: express.Response): P
         res.json({ balance });
     } catch (error) {
         console.log(error)
-        res.status(500).json({ error: 'Failed to submit transaction' });
+        const message = (error as EndorseError).details[0].message;
+        res.status(500).json({ error: 'Failed to submit transaction', cause: message });
     }
 }
 

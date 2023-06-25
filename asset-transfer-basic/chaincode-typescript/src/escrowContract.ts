@@ -18,11 +18,17 @@ export class EscrowContract {
     public Amount: number;
 
     @Property()
-    public Status: 'OPEN' | 'CLOSED';
+    public Status: 'OPEN' | 'CLOSED' | 'CANCELED';
 
     @Property()
-    public ClientApproval: boolean;
+    public ApprovedByClient: boolean;
 
     @Property()
-    public FreelancerApproval: boolean;
+    public ApprovedByFreelancer: boolean;
+
+    @Property()
+    public CanceledByClient: boolean;
+
+    @Property()
+    public CanceledByFreelancer: boolean;
 }
