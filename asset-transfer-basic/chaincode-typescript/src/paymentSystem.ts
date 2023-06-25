@@ -1,6 +1,5 @@
-import { Context, Contract, Info, Returns, Transaction } from 'fabric-contract-api';
+import { Context, Contract, Info, Transaction } from 'fabric-contract-api';
 import { Account } from './account';
-import { Transaction as Trans } from './transaction';
 import { EscrowContract } from './escrowContract';
 
 @Info({ title: 'PaymentSystem', description: 'Smart contract for managing payments between accounts' })
@@ -25,38 +24,6 @@ export class PaymentSystemContract extends Contract {
             await ctx.stub.putState(account.ID, Buffer.from(JSON.stringify(account)));
             console.info(`Account ${account.ID} initialized`);
         }
-    }
-
-    // TransferFunds moves the specified amount of funds from the source account to the target account, and records the transaction.
-    @Transaction()
-    public async TransferFunds(ctx: Context, sourceID: string, targetID: string, amount: number): Promise<void> {
-        const sourceAccountJSON = await ctx.stub.getState(sourceID);
-        const targetAccountJSON = await ctx.stub.getState(targetID);
-        if (!sourceAccountJSON || sourceAccountJSON.length === 0) {
-            throw new Error(`The account ${sourceID} does not exist`);
-        }
-        if (!targetAccountJSON || targetAccountJSON.length === 0) {
-            throw new Error(`The account ${targetID} does not exist`);
-        }
-        const sourceAccount = JSON.parse(sourceAccountJSON.toString()) as Account;
-        const targetAccount = JSON.parse(targetAccountJSON.toString()) as Account;
-        if (sourceAccount.Balance < amount) {
-            throw new Error('Insufficient funds');
-        }
-        sourceAccount.Balance -= amount;
-        targetAccount.Balance += amount;
-        await ctx.stub.putState(sourceID, Buffer.from(JSON.stringify(sourceAccount)));
-        await ctx.stub.putState(targetID, Buffer.from(JSON.stringify(targetAccount)));
-
-        const transaction: Trans = {
-            ID: `${sourceID}-${targetID}-${Date.now()}`,
-            docType: 'transaction',
-            Source: sourceID,
-            Target: targetID,
-            Amount: amount,
-            DateTime: new Date().toISOString(),
-        };
-        await ctx.stub.putState(transaction.ID, Buffer.from(JSON.stringify(transaction)));
     }
 
     // GetAccountBalance returns the balance of the account with the given id.
@@ -120,28 +87,33 @@ export class PaymentSystemContract extends Contract {
     public async ApproveWork(ctx: Context, contractID: string, approver: string): Promise<void> {
         const contractJSON = await ctx.stub.getState(contractID);
         const contract = JSON.parse(contractJSON.toString()) as EscrowContract;
-        if (approver === contract.Client) {
-            contract.ClientApproval = true;
-        } else if (approver === contract.Freelancer) {
-            contract.FreelancerApproval = true;
+
+        if (contract.Status === 'OPEN') {
+            if (approver === contract.Client) {
+                contract.ClientApproval = true;
+            } else if (approver === contract.Freelancer) {
+                contract.FreelancerApproval = true;
+            } else {
+                throw new Error(`The approver ${approver} is not part of the contract`);
+            }
+    
+            // Automatically close the contract if both parties have approved
+            if (contract.ClientApproval && contract.FreelancerApproval) {
+                const freelancerAccountJSON = await ctx.stub.getState(contract.Freelancer);
+                const freelancerAccount = JSON.parse(freelancerAccountJSON.toString()) as Account;
+                freelancerAccount.Balance += contract.Amount;
+                await ctx.stub.putState(contract.Freelancer, Buffer.from(JSON.stringify(freelancerAccount)));
+    
+                contract.Status = 'CLOSED';
+            }
+    
+            await ctx.stub.putState(contractID, Buffer.from(JSON.stringify(contract)));
         } else {
-            throw new Error(`The approver ${approver} is not part of the contract`);
+            throw new Error('The contract is already closed');
         }
-
-        // Automatically close the contract if both parties have approved
-        if (contract.ClientApproval && contract.FreelancerApproval) {
-            const freelancerAccountJSON = await ctx.stub.getState(contract.Freelancer);
-            const freelancerAccount = JSON.parse(freelancerAccountJSON.toString()) as Account;
-            freelancerAccount.Balance += contract.Amount;
-            await ctx.stub.putState(contract.Freelancer, Buffer.from(JSON.stringify(freelancerAccount)));
-
-            contract.Status = 'CLOSED';
-        }
-
-        await ctx.stub.putState(contractID, Buffer.from(JSON.stringify(contract)));
     }
 
-    // Cancel the contract by both parties approbation
+    // Cancel the contract by mutual agreement and refund the client.
     @Transaction()
     public async CancelContract(ctx: Context, contractID: string, approverClient: string, approverFreelancer: string) : Promise<void> {
     	const contractJSON = await ctx.stub.getState(contractID);
@@ -155,6 +127,8 @@ export class PaymentSystemContract extends Contract {
         	contract.Status = 'CLOSED';
         	await ctx.stub.putState(contract.Client, Buffer.from(JSON.stringify(clientAccount)));
             await ctx.stub.putState(contractID, Buffer.from(JSON.stringify(contract)));
+        } else {
+            throw new Error('Cannot cancel the contract. Either the contract is already closed, or the approvers are not part of the contract.');
         }
     }
 }
