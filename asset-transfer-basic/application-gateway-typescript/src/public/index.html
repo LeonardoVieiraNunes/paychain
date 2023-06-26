@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>PayChain</title>
+        <link href="/css/index.css" type="text/css" rel="stylesheet" />
+        <script src="js/script.js" type="application/javascript">
+        </script>
+    </head>
+<body>
+    <header>
+        <h1>PayChain</h1>
+    </header>
+    <section>
+        <div>
+            <button onclick="viewContract(); getTransactions();">View Active Contracts</button>
+            <button onclick="createContract()">Create New Contract</button>
+        </div>
+        <div id="contract_screen">
+            <div id="view_contract">
+                <h3>Active Contracts</h3>
+                <script type="application/javascript">
+                	getTransactions()
+                </script>
+                <div id="list_contracts">
+                </div>
+            </div>
+            <div id="create_contract">
+                <h3>Create New Contract</h3>
+                <form id="new_contract" action="" method="post" onsubmit="event.preventDefault(); sendContract();">
+                    <div id="contract_table">
+                        <div>
+                            <div class="col">
+                                Signature of Contracting Party:
+                            </div>
+                            <div class="col">
+                                <input type="text" name="contractor" />
+                            </div>
+                        </div>
+                        <div>
+                            <div class="col">
+                                Signature of Hired:
+                            </div>
+                            <div class="col">
+                                <input type="text" name="hired" />
+                            </div>
+                        </div>
+                        <div>
+                            <div class="col">
+                                Invested Amount:
+                            </div>
+                            <div class="col">
+                                <input type="text" name="amount" />
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <input type="submit" value="Create Contract" class="btn" />
+                        <input type="reset" value="Cancel" class="btn" />
+                    </div>
+                </form>
+            </div>
+        </div>
+    </section>
+    <div id="lightbox" class="lightbox">
+        <div id="panel">
+            <h3>Contract Options</h3>
+            <br />
+            Contract identifier:
+            <span id="contract_id"></span>
+            <br />
+            <br />
+            Contract amount:
+            <span id="contract_amout"></span>
+            <br />
+            <br />
+            Contract status:
+            <span id="contract_status"></span>
+            <br />
+            <br />
+            <form onsubmit="event.preventDefault(); updateContract();">
+                Signature: <input type="text" name="confirmation_signature" />
+                <br />
+                <br />
+                <input type="radio" id="confirm" name="operation_contract" value="confirm">
+                <label for="confirm">Confirm Contract</label>
+                <input type="radio" id="cancel" name="operation_contract" value="cancel">
+                <label for="cancel">Cancel Contract</label>
+                <br />
+                <br />
+                <input type="submit" value="Confirm Operations" class="btn" />
+                <input type="reset" value="Cancel" class="btn" onclick="closeLightbox()" />
+            </form>
+        </div>
+    </div>
+</body>
+</html>
