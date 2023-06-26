@@ -232,6 +232,10 @@ init()
     .then(() => {
         const app = express();
         app.use(express.json());
+        app.use(express.static(__dirname + '/public/'));
+	    app.get('/', function(req, res) {
+        	return res.sendFile(__dirname + '/public/index.html');
+        });
         app.get('/transactions', getAllTransactions);
         app.post('/create-escrow-contract', createEscrowContract);
         app.post('/approve-work', approveWork);
