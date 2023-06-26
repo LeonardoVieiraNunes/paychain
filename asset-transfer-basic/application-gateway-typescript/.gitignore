@@ -11,4 +11,7 @@ node_modules/
 jspm_packages/
 
 # Compiled TypeScript files
-dist
+dist/*
+
+# Do not ignore the following files
+!dist/public/
